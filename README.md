@@ -45,6 +45,72 @@ Provisions an Azure Linux VM (Standard_B2ms) pre-configured with Docker sandboxe
 - An SSH key pair (`ssh-keygen -t ed25519`)
 - API keys for your desired LLM providers (set on the VM post-deploy)
 
+## Corporate Network Considerations
+
+Your network uses an active firewall cluster with Deep Packet Inspection (DPI) and SSL/TLS decryption. HTTPS traffic to/from the VM is re-encrypted with a corporate CA certificate (`MU-prisma-ssldecryptca.volvo.net` / `got-fw-subca.volvo.net`). This affects how the VM connects to the internet and how you access it.
+
+### Access: Private IP Only (No Public IP Needed)
+
+The VM is accessed through your corporate VPN -- no public IP required.
+
+```hcl
+# In terraform.tfvars
+create_public_ip = false    # default, access over VPN
+```
+
+Your corporate VPN routes traffic into the Azure VNet. The VM gets a private IP that you reach directly from your corporate network. The NSG only allows SSH from your corporate IP range.
+
+### Corporate CA Certificate
+
+Without the corporate CA installed, every HTTPS request on the VM will fail:
+
+```
+curl: (60) SSL certificate problem: unable to get local issuer certificate
+```
+
+**Export the CA from your Windows machine:**
+
+```powershell
+# Option 1: certmgr.msc GUI
+#   Win+R → certmgr.msc
+#   Navigate to: Trusted Root Certification Authorities → Certificates
+#   Find "MU-prisma-ssldecryptca.volvo.net" or "got-fw-subca.volvo.net"
+#   Right-click → All Tasks → Export
+#   Format: Base-64 encoded X.509 (.cer)
+#   Save as corporate-ca.cer
+
+# Option 2: PowerShell
+$cert = Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -match "volvo.net" }
+$cert | Export-Certificate -FilePath "$env:USERPROFILE\corporate-ca.cer" -Type CERT
+```
+
+**Install on the VM:**
+
+```bash
+# SCP the cert to the VM (over VPN)
+scp corporate-ca.cer agent@<vm-private-ip>:/tmp/corporate-ca.crt
+
+# SSH in and install
+ssh agent@<vm-private-ip>
+sudo cp /tmp/corporate-ca.crt /usr/local/share/ca-certificates/corporate-ca.crt
+sudo update-ca-certificates
+
+# Verify it works
+curl -s https://ifconfig.me
+```
+
+### Corporate Proxy (if required)
+
+If your VPN routes internet traffic through a corporate HTTP proxy, uncomment the proxy configuration in `cloud-init.yaml` (search for "proxy.volvo.net") and fill in the actual proxy address. Then re-deploy or apply manually:
+
+```bash
+export HTTP_PROXY="http://proxy.volvo.net:8080"
+export HTTPS_PROXY="http://proxy.volvo.net:8080"
+export NO_PROXY="localhost,127.0.0.1,.azure.com,.volvo.net"
+```
+
+Docker also needs the proxy -- the docker-compose and Hermes Docker backend in the cloud-init have commented proxy blocks for this.
+
 ## VPN Egress IP Discovery (WSL 2 / Windows)
 
 Before deploying, you need to know the public IP your VPN traffic egresses from. This is the IP you put in `ssh_allowed_ip`.

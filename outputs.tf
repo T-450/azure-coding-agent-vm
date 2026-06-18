@@ -24,12 +24,17 @@ output "vm_public_ip" {
 }
 
 output "ssh_command" {
-  description = "SSH command to connect to the VM"
+  description = "SSH command to connect to the VM. Use private IP over VPN"
   value = var.create_public_ip ? (
     "ssh ${var.admin_username}@${azurerm_public_ip.main[0].ip_address}"
   ) : (
-    "ssh ${var.admin_username}@${azurerm_network_interface.main.private_ip_addresses[0]}  (over VPN)"
+    "ssh ${var.admin_username}@${azurerm_network_interface.main.private_ip_addresses[0]}"
   )
+}
+
+output "scp_cert_command" {
+  description = "SCP command to copy the corporate CA certificate to the VM"
+  value = "scp corporate-ca.cer ${var.admin_username}@${azurerm_network_interface.main.private_ip_addresses[0]}:/tmp/corporate-ca.crt"
 }
 
 output "vscode_ssh_command" {

@@ -41,9 +41,9 @@ variable "ssh_allowed_ip" {
 }
 
 variable "create_public_ip" {
-  description = "Attach a public IP to the VM. Set false if accessing via corporate VPN / Azure Bastion"
+  description = "Attach a public IP to the VM. Set false if accessing via corporate VPN / Azure Bastion (recommended for Volvo corporate network)"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "disk_size_gb" {

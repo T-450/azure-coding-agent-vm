@@ -187,6 +187,57 @@ write_files:
       This project is managed by OpenCode, Pi, or Hermes coding agents.
       Agents run in Docker sandboxes for container-level isolation.
 
+  # ──────────────────────────────────────────────────────────────────
+  # Corporate SSL Decryption CA Certificate
+  # ──────────────────────────────────────────────────────────────────
+  # Volvo's firewall cluster does DPI + SSL decryption. All HTTPS
+  # traffic is re-encrypted with a corporate CA. The VM needs this
+  # CA in the system trust store or every HTTPS request fails.
+  #
+  # EXPORT FROM YOUR WINDOWS MACHINE:
+  #   1. Open certmgr.msc → Trusted Root Certification Authorities
+  #   2. Find "MU-prisma-ssldecryptca.volvo.net" or "got-fw-subca.volvo.net"
+  #   3. Right-click → Export → Base-64 encoded X.509 (.cer)
+  #   4. Copy the .cer file to the VM at /usr/local/share/ca-certificates/corporate-ca.crt
+  #   5. Run: sudo update-ca-certificates
+  #
+  # If your IT deployed the cert via group policy on Windows, export
+  # from certmgr.msc → Trusted Root Certification Authorities and
+  # transfer the .cer file to the VM.
+  #
+  # Alternatively, place the .cer file at the project root as
+  # corporate-ca.crt and uncomment the write_files block below.
+  #- path: /usr/local/share/ca-certificates/corporate-ca.crt
+  #  owner: root:root
+  #  permissions: "0644"
+  #  content: |
+  #    -----BEGIN CERTIFICATE-----
+  #    (paste your base64-encoded corporate CA certificate here)
+  #    -----END CERTIFICATE-----
+
+  # ──────────────────────────────────────────────────────────────────
+  # Corporate Proxy Configuration (if required)
+  # ──────────────────────────────────────────────────────────────────
+  # If the VPN routes internet traffic through a corporate HTTP proxy,
+  # uncomment and fill in the proxy address. Otherwise leave empty.
+  #- path: /etc/profile.d/proxy.sh
+  #  owner: root:root
+  #  permissions: "0644"
+  #  content: |
+  #    export HTTP_PROXY="http://proxy.volvo.net:8080"
+  #    export HTTPS_PROXY="http://proxy.volvo.net:8080"
+  #    export NO_PROXY="localhost,127.0.0.1,.azure.com,.volvo.net"
+
+  # Docker daemon proxy config (uncomment if proxy is needed)
+  #- path: /etc/systemd/system/docker.service.d/proxy.conf
+  #  owner: root:root
+  #  permissions: "0644"
+  #  content: |
+  #    [Service]
+  #    Environment="HTTP_PROXY=http://proxy.volvo.net:8080"
+  #    Environment="HTTPS_PROXY=http://proxy.volvo.net:8080"
+  #    Environment="NO_PROXY=localhost,127.0.0.1,.azure.com,.volvo.net"
+
 # ---------------------------------------------------------------------------
 # Commands to run at boot
 # ---------------------------------------------------------------------------
@@ -255,6 +306,10 @@ runcmd:
   # ---- Copy AGENTS.md ----
   - cp /etc/skel/AGENTS.md /home/${admin_username}/AGENTS.md
   - chown ${admin_username}:${admin_username} /home/${admin_username}/AGENTS.md
+
+  # ---- Trust corporate CA certificate if present ----
+  - update-ca-certificates 2>/dev/null || true
+  - echo "CA certificates updated. If SSL errors persist, install the corporate CA cert (see cloud-init.yaml comments)"
 
   # ---- Register completion marker ----
   - echo "CLOUD_INIT_COMPLETE" >> /var/log/cloud-init-output.log
