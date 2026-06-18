@@ -24,17 +24,28 @@ output "vm_public_ip" {
 }
 
 output "ssh_command" {
-  description = "SSH command to connect to the VM. Use private IP over VPN"
-  value = var.create_public_ip ? (
-    "ssh ${var.admin_username}@${azurerm_public_ip.main[0].ip_address}"
+  description = "SSH command to connect. Uses private IP over VPN, or Cloudflare Tunnel if configured"
+  value = var.cloudflare_tunnel_token != "" ? (
+    "cloudflared access ssh --hostname ${var.cloudflare_tunnel_domain != "" ? var.cloudflare_tunnel_domain : "<your-tunnel-domain>"}"
   ) : (
     "ssh ${var.admin_username}@${azurerm_network_interface.main.private_ip_addresses[0]}"
   )
+  sensitive = true
 }
 
 output "scp_cert_command" {
   description = "SCP command to copy the corporate CA certificate to the VM"
   value = "scp corporate-ca.cer ${var.admin_username}@${azurerm_network_interface.main.private_ip_addresses[0]}:/tmp/corporate-ca.crt"
+}
+
+output "cloudflare_tunnel_status" {
+  description = "Cloudflare Tunnel status"
+  value = var.cloudflare_tunnel_token != "" ? (
+    "Tunnel token configured. SSH via: cloudflared access ssh --hostname ${var.cloudflare_tunnel_domain != "" ? var.cloudflare_tunnel_domain : "<your-tunnel-domain>"}"
+  ) : (
+    "No Cloudflare Tunnel token set. Using NSG-based SSH (port 22, locked to ${var.ssh_allowed_ip})"
+  )
+  sensitive = true
 }
 
 output "vscode_ssh_command" {

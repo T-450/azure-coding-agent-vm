@@ -40,6 +40,19 @@ variable "ssh_allowed_ip" {
   default     = "0.0.0.0/0"
 }
 
+variable "cloudflare_tunnel_token" {
+  description = "Cloudflare Tunnel token for zero-inbound-port access. Create a tunnel in Cloudflare Zero Trust dashboard and paste the token here. Leave empty to use NSG-based SSH instead."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "cloudflare_tunnel_domain" {
+  description = "Public domain/hostname for the Cloudflare Tunnel (e.g., ssh.vm.yourdomain.com). Used in outputs and documentation."
+  type        = string
+  default     = ""
+}
+
 variable "create_public_ip" {
   description = "Attach a public IP to the VM. Set false if accessing via corporate VPN / Azure Bastion (recommended for Volvo corporate network)"
   type        = bool

@@ -6,7 +6,9 @@
 # This runs ONCE on first boot. Re-provisioning requires a new VM or
 # re-applying custom_data with a forced update.
 #
-# NOTE: ${admin_username} is a Terraform template variable.
+# NOTE: ${admin_username} and ${cloudflare_tunnel_token} are Terraform
+# template variables. Shell expressions using literal $ and braces
+# (like $${1:-default}) use $$ as the Terraform escape sequence.
 # ---------------------------------------------------------------------------
 
 package_update: true
@@ -24,7 +26,6 @@ packages:
   - python3-venv
   - git
   - curl
-  - wget
   - tmux
   - htop
   - jq
@@ -64,15 +65,14 @@ write_files:
     permissions: "0755"
     content: |
       #!/bin/bash
-      # Launch an interactive shell inside the coding agent sandbox.
       # Usage: agent-shell [project-dir]
       set -e
       PROJECT="$${1:-default}"
-      WORKSPACE="$HOME/projects/$PROJECT"
-      mkdir -p "$WORKSPACE"
+      WORKSPACE="$HOME/projects/$$PROJECT"
+      mkdir -p "$$WORKSPACE"
 
       exec docker run -it --rm \
-        -v "$WORKSPACE":/workspace \
+        -v "$$WORKSPACE":/workspace \
         -v /var/run/docker.sock:/var/run/docker.sock \
         --security-opt no-new-privileges:true \
         --cap-drop ALL \
@@ -88,24 +88,23 @@ write_files:
     permissions: "0755"
     content: |
       #!/bin/bash
-      # Run OpenCode inside a Docker sandbox.
-      # Usage: run-opencode <project-dir> <prompt>
+      # Usage: run-opencode <project-dir> "<prompt>"
       set -e
       PROJECT="$${1:?Usage: run-opencode <project-dir> <prompt>}"
       shift
-      PROMPT="$*"
-      WORKSPACE="$HOME/projects/$PROJECT"
-      mkdir -p "$WORKSPACE"
+      PROMPT="$$*"
+      WORKSPACE="$HOME/projects/$$PROJECT"
+      mkdir -p "$$WORKSPACE"
 
       exec docker run -i --rm \
-        -v "$WORKSPACE":/workspace \
+        -v "$$WORKSPACE":/workspace \
         --security-opt no-new-privileges:true \
         --cap-drop ALL \
         --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
         --cap-add SETUID --cap-add SETGID \
         --tmpfs /tmp:size=100M \
         coding-agent-sandbox \
-        opencode run "$PROMPT"
+        opencode run "$$PROMPT"
 
   # Helper: run-pi - run Pi Coding Agent inside sandbox
   - path: /home/${admin_username}/bin/run-pi
@@ -113,24 +112,23 @@ write_files:
     permissions: "0755"
     content: |
       #!/bin/bash
-      # Run Pi Coding Agent inside a Docker sandbox.
-      # Usage: run-pi <project-dir> <prompt>
+      # Usage: run-pi <project-dir> "<prompt>"
       set -e
       PROJECT="$${1:?Usage: run-pi <project-dir> <prompt>}"
       shift
-      PROMPT="$*"
-      WORKSPACE="$HOME/projects/$PROJECT"
-      mkdir -p "$WORKSPACE"
+      PROMPT="$$*"
+      WORKSPACE="$HOME/projects/$$PROJECT"
+      mkdir -p "$$WORKSPACE"
 
       exec docker run -i --rm \
-        -v "$WORKSPACE":/workspace \
+        -v "$$WORKSPACE":/workspace \
         --security-opt no-new-privileges:true \
         --cap-drop ALL \
         --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
         --cap-add SETUID --cap-add SETGID \
         --tmpfs /tmp:size=100M \
         coding-agent-sandbox \
-        pi "$PROMPT"
+        pi "$$PROMPT"
 
   # Systemd: build sandbox image on boot
   - path: /etc/systemd/system/agent-sandbox-build.service
@@ -150,7 +148,44 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  # ──────────────────────────────────────────────────────────────────
+  # Cloudflare Tunnel -- Zero Inbound Ports
+  # ──────────────────────────────────────────────────────────────────
+  # Cloudflare Tunnel creates an outbound-only connection from the VM
+  # to Cloudflare's edge network. No inbound ports are open on the VM
+  # or its NSG. You SSH in through Cloudflare:
+  #
+  #   cloudflared access ssh --hostname ssh.vm.yourdomain.com
+  #
+  # The tunnel token comes from Cloudflare Zero Trust dashboard:
+  #   https://one.dash.cloudflare.com/ → Networks → Tunnels → Create
+  #   Choose "cloudflared" as connector type
+  #   Set cloudflare_tunnel_token in terraform.tfvars
+  #
+  # If token is empty, this service just won't start (no harm done).
+  - path: /etc/systemd/system/cloudflare-tunnel.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Cloudflare Tunnel (zero-inbound-port SSH access)
+      After=network.target
+      Wants=network.target
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/local/bin/cloudflared tunnel run --token ${cloudflare_tunnel_token}
+      Restart=on-failure
+      RestartSec=5
+      User=root
+      StartLimitInterval=60
+      StartLimitBurst=3
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # ──────────────────────────────────────────────────────────────────
   # Hermes config with Docker terminal backend
+  # ──────────────────────────────────────────────────────────────────
   - path: /home/${admin_username}/.hermes/config.yaml
     owner: ${admin_username}:${admin_username}
     permissions: "0644"
@@ -195,31 +230,25 @@ write_files:
   # CA in the system trust store or every HTTPS request fails.
   #
   # EXPORT FROM YOUR WINDOWS MACHINE:
-  #   1. Open certmgr.msc → Trusted Root Certification Authorities
-  #   2. Find "MU-prisma-ssldecryptca.volvo.net" or "got-fw-subca.volvo.net"
+  #   1. certmgr.msc → Trusted Root Certification Authorities
+  #   2. Find MU-prisma-ssldecryptca.volvo.net or got-fw-subca.volvo.net
   #   3. Right-click → Export → Base-64 encoded X.509 (.cer)
-  #   4. Copy the .cer file to the VM at /usr/local/share/ca-certificates/corporate-ca.crt
+  #   4. Copy the .cer file to /usr/local/share/ca-certificates/corporate-ca.crt
   #   5. Run: sudo update-ca-certificates
   #
-  # If your IT deployed the cert via group policy on Windows, export
-  # from certmgr.msc → Trusted Root Certification Authorities and
-  # transfer the .cer file to the VM.
+  # PowerShell export:
+  #   $cert = Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -match "volvo.net" }
+  #   $cert | Export-Certificate -FilePath "$env:USERPROFILE\corporate-ca.cer" -Type CERT
   #
-  # Alternatively, place the .cer file at the project root as
-  # corporate-ca.crt and uncomment the write_files block below.
-  #- path: /usr/local/share/ca-certificates/corporate-ca.crt
-  #  owner: root:root
-  #  permissions: "0644"
-  #  content: |
-  #    -----BEGIN CERTIFICATE-----
-  #    (paste your base64-encoded corporate CA certificate here)
-  #    -----END CERTIFICATE-----
+  # SCP to VM:
+  #   scp corporate-ca.cer agent@<vm-ip>:/tmp/corporate-ca.crt
+  #   ssh agent@<vm-ip> "sudo cp /tmp/corporate-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates"
 
   # ──────────────────────────────────────────────────────────────────
   # Corporate Proxy Configuration (if required)
   # ──────────────────────────────────────────────────────────────────
   # If the VPN routes internet traffic through a corporate HTTP proxy,
-  # uncomment and fill in the proxy address. Otherwise leave empty.
+  # uncomment and fill in. Otherwise skip.
   #- path: /etc/profile.d/proxy.sh
   #  owner: root:root
   #  permissions: "0644"
@@ -228,7 +257,6 @@ write_files:
   #    export HTTPS_PROXY="http://proxy.volvo.net:8080"
   #    export NO_PROXY="localhost,127.0.0.1,.azure.com,.volvo.net"
 
-  # Docker daemon proxy config (uncomment if proxy is needed)
   #- path: /etc/systemd/system/docker.service.d/proxy.conf
   #  owner: root:root
   #  permissions: "0644"
@@ -242,10 +270,16 @@ write_files:
 # Commands to run at boot
 # ---------------------------------------------------------------------------
 runcmd:
-  # ---- Security: firewall ----
+  # ---- Security: UFW ----
   - ufw default deny incoming
   - ufw default allow outgoing
-  - ufw allow 22/tcp
+  - |
+    if [ "${cloudflare_tunnel_token}" != "" ]; then
+      echo "Cloudflare Tunnel token detected -- closing SSH port in UFW"
+      # SSH port stays closed -- use cloudflared access ssh instead
+    else
+      ufw allow 22/tcp
+    fi
   - ufw --force enable
 
   # ---- Security: SSH hardening ----
@@ -259,6 +293,18 @@ runcmd:
   # ---- Install Node.js LTS via n ----
   - npm install -g n && n lts
   - hash -r
+
+  # ---- Install cloudflared (from Cloudflare repo) ----
+  - |
+    if [ "${cloudflare_tunnel_token}" != "" ]; then
+      curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | gpg --dearmor -o /usr/share/keyrings/cloudflare.gpg
+      echo "deb [signed-by=/usr/share/keyrings/cloudflare.gpg] https://pkg.cloudflare.com/cloudflared $(lsb_release -cs) main" > /etc/apt/sources.list.d/cloudflared.list
+      apt-get update -qq && apt-get install -y -qq cloudflared
+      systemctl enable cloudflare-tunnel.service
+      systemctl start cloudflare-tunnel.service
+    else
+      echo "No Cloudflare Tunnel token -- skipping cloudflared install"
+    fi
 
   # ---- Install OpenCode CLI ----
   - npm install -g opencode-ai@latest
@@ -309,9 +355,8 @@ runcmd:
 
   # ---- Trust corporate CA certificate if present ----
   - update-ca-certificates 2>/dev/null || true
-  - echo "CA certificates updated. If SSL errors persist, install the corporate CA cert (see cloud-init.yaml comments)"
 
   # ---- Register completion marker ----
   - echo "CLOUD_INIT_COMPLETE" >> /var/log/cloud-init-output.log
 
-final_message: "Coding Agent VM provisioning complete. Installed: Docker, OpenCode, Pi, Hermes Agent"
+final_message: "Coding Agent VM provisioning complete. Installed: Docker, OpenCode, Pi, Hermes Agent."

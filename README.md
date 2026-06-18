@@ -45,7 +45,63 @@ Provisions an Azure Linux VM (Standard_B2ms) pre-configured with Docker sandboxe
 - An SSH key pair (`ssh-keygen -t ed25519`)
 - API keys for your desired LLM providers (set on the VM post-deploy)
 
-## Corporate Network Considerations
+## Access: Cloudflare Tunnel (Zero Inbound Ports)
+
+The VM has **zero open inbound ports**. You access it through Cloudflare Tunnel -- the VM initiates an outbound connection to Cloudflare's edge, and you connect via `cloudflared access ssh`. There is no public IP, no open SSH port, no surface for attackers.
+
+### How it works
+
+```
+Your Machine           Internet            Azure VNet
+┌──────────┐                           ┌──────────────────┐
+│ VS Code  │──cloudflared access ssh──▶│  Cloudflare Edge  │──outbound tunnel──▶│ VM (private IP)
+│ Remote   │                           │  (tunnel)         │                   │ Port 22: closed
+│ SSH      │                           └───────────────────┘                   │ UFW: port 22 closed
+└──────────┘                                                                   │ NSG: all inbound DENY
+```
+
+### Setup (one-time)
+
+**1. Create a tunnel in Cloudflare Zero Trust dashboard:**
+
+1. Go to https://one.dash.cloudflare.com/ → Networks → Tunnels → Create a tunnel
+2. Choose **cloudflared** as the connector type
+3. Name it (e.g., `azure-coding-agent-vm`)
+4. Copy the tunnel token that Cloudflare generates
+
+**2. Pass the token to Terraform:**
+
+```hcl
+# terraform.tfvars
+cloudflare_tunnel_token = "eyJhIjoi..."
+cloudflare_tunnel_domain = "ssh.vm.yourdomain.com"   # optional, for docs
+```
+
+**3. Deploy:**
+
+```bash
+terraform apply
+```
+
+Cloud-init installs `cloudflared` from the official Cloudflare repo, creates a systemd service (`cloudflare-tunnel.service`), and starts it. The tunnel persists across reboots.
+
+### Connect
+
+```bash
+# From any machine with cloudflared installed
+cloudflared access ssh --hostname ssh.vm.yourdomain.com
+
+# Or add to ~/.ssh/config for VS Code Remote SSH
+Host coding-agent
+    ProxyCommand cloudflared access ssh --hostname %h
+    HostName ssh.vm.yourdomain.com
+    User agent
+    IdentityFile ~/.ssh/id_rsa
+```
+
+### Without Cloudflare Tunnel (NSG-based fallback)
+
+If you don't set `cloudflare_tunnel_token`, the NSG opens port 22 locked to `ssh_allowed_ip` instead:
 
 Your network uses an active firewall cluster with Deep Packet Inspection (DPI) and SSL/TLS decryption. HTTPS traffic to/from the VM is re-encrypted with a corporate CA certificate (`MU-prisma-ssldecryptca.volvo.net` / `got-fw-subca.volvo.net`). This affects how the VM connects to the internet and how you access it.
 

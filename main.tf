@@ -82,17 +82,24 @@ resource "azurerm_network_security_group" "main" {
   resource_group_name = azurerm_resource_group.main.name
   tags                = var.tags
 
-  # SSH -- locked to your VPN egress IP or corporate CIDR
-  security_rule {
-    name                       = "AllowSSH"
-    priority                   = 100
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "22"
-    source_address_prefix      = var.ssh_allowed_ip
-    destination_address_prefix = "*"
+  # When Cloudflare Tunnel is configured: no inbound ports at all.
+  # The VM initiates an outbound-only connection to Cloudflare's edge,
+  # and you connect through Cloudflare (cloudflared access ssh).
+  # When not using Cloudflare: SSH locked to your VPN egress IP.
+
+  dynamic "security_rule" {
+    for_each = var.cloudflare_tunnel_token == "" ? [1] : []
+    content {
+      name                       = "AllowSSH"
+      priority                   = 100
+      direction                  = "Inbound"
+      access                     = "Allow"
+      protocol                   = "Tcp"
+      source_port_range          = "*"
+      destination_port_range     = "22"
+      source_address_prefix      = var.ssh_allowed_ip
+      destination_address_prefix = "*"
+    }
   }
 
   # Deny all other inbound
@@ -140,9 +147,10 @@ data "local_file" "ssh_public_key" {
 # ---------------------------------------------------------------------------
 locals {
   cloud_init_rendered = templatefile("${path.module}/cloud-init.yaml", {
-    admin_username      = var.admin_username
-    docker_disk_device  = var.docker_disk_size_gb > 0 ? "/dev/sdc" : ""
-    docker_disk_size_gb = var.docker_disk_size_gb
+    admin_username            = var.admin_username
+    docker_disk_device        = var.docker_disk_size_gb > 0 ? "/dev/sdc" : ""
+    docker_disk_size_gb       = var.docker_disk_size_gb
+    cloudflare_tunnel_token   = var.cloudflare_tunnel_token
   })
 }
 

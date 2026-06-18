@@ -32,5 +32,21 @@
 # Additional data disk for Docker storage (0 to skip)
 # docker_disk_size_gb = 32
 
-# Ubuntu version: 22_04-lts or 24_04-lts
+# Custom Ubuntu version if needed
 # ubuntu_version = "22_04-lts"
+
+# ──────────────────────────────────────────────────────────────────
+# Cloudflare Tunnel (Zero Inbound Ports)
+# ──────────────────────────────────────────────────────────────────
+# If set, SSH port 22 is CLOSED on the NSG and UFW. Access is
+# through Cloudflare's edge network only -- the VM initiates an
+# outbound tunnel, you connect via cloudflared access ssh.
+#
+# Create a tunnel token:
+#   1. Go to https://one.dash.cloudflare.com/ → Networks → Tunnels
+#   2. Create a tunnel, choose "cloudflared" as connector
+#   3. Copy the token and paste it here
+#
+# Leave empty to use traditional NSG-based SSH (port 22 locked to IP).
+# cloudflare_tunnel_token = ""
+# cloudflare_tunnel_domain = "ssh.vm.yourdomain.com"
