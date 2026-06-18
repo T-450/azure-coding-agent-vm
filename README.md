@@ -338,3 +338,6 @@ See [variables.tf](variables.tf) for all options. Key ones:
 - https://opencode.ai/docs/
 - https://pi.dev/docs/latest/quickstart
 - https://hermes-agent.nousresearch.com/docs/
+- https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+- https://medium.com/@kief/using-pipelines-to-manage-environments-with-infrastructure-as-code-b37285a1cbf5
+  Kief Morris on using CI/CD pipelines to manage environments with IaC
