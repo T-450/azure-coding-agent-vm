@@ -1,0 +1,36 @@
+# Example terraform.tfvars
+# Copy this to terraform.tfvars and fill in your values.
+
+# Azure region
+# location = "eastus"
+
+# Resource group name
+# resource_group_name = "rg-coding-agent"
+
+# VM size. B2ms = 2 vCPU, 8GB RAM ($46/mo)
+# vm_size = "Standard_B2ms"
+
+# VM name
+# vm_name = "vm-coding-agent"
+
+# Admin username
+# admin_username = "agent"
+
+# Path to your SSH public key
+# ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# Lock SSH access to your corporate VPN egress IP
+# Find it with: curl ifconfig.me
+# ssh_allowed_ip = "203.0.113.42/32"
+
+# Set to false if you access via corporate VPN / Azure Bastion (private IP only)
+# create_public_ip = true
+
+# OS disk size (64GB+ recommended for Docker images + monorepos)
+# disk_size_gb = 64
+
+# Additional data disk for Docker storage (0 to skip)
+# docker_disk_size_gb = 32
+
+# Ubuntu version: 22_04-lts or 24_04-lts
+# ubuntu_version = "22_04-lts"

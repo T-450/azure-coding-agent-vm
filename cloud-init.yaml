@@ -1,0 +1,262 @@
+#cloud-config
+# ---------------------------------------------------------------------------
+# Azure VM cloud-init for Coding Agent host
+# Installs: Docker (sandbox), OpenCode, Pi Coding Agent, Hermes Agent
+#
+# This runs ONCE on first boot. Re-provisioning requires a new VM or
+# re-applying custom_data with a forced update.
+#
+# NOTE: ${admin_username} is a Terraform template variable.
+# ---------------------------------------------------------------------------
+
+package_update: true
+package_upgrade: false
+
+packages:
+  # Docker engine
+  - docker.io
+  - docker-compose-v2
+  # Runtime dependencies
+  - nodejs
+  - npm
+  - python3
+  - python3-pip
+  - python3-venv
+  - git
+  - curl
+  - wget
+  - tmux
+  - htop
+  - jq
+  - unzip
+  - build-essential
+  # Security
+  - ufw
+  - fail2ban
+  # Monitoring
+  - sysstat
+  - iotop
+
+# ---------------------------------------------------------------------------
+# Write configuration files
+# ---------------------------------------------------------------------------
+write_files:
+
+  # Docker sandbox template for coding agents
+  - path: /home/${admin_username}/docker/sandbox-coding-agent.Dockerfile
+    owner: ${admin_username}:${admin_username}
+    permissions: "0644"
+    content: |
+      FROM ubuntu:22.04
+
+      RUN apt-get update && apt-get install -y --no-install-recommends \
+          git curl wget jq ca-certificates openssh-client \
+          build-essential python3 python3-pip nodejs npm ripgrep tmux \
+          && rm -rf /var/lib/apt/lists/*
+
+      RUN useradd -m -s /bin/bash agent
+      USER agent
+      WORKDIR /workspace
+
+  # Helpers: agent-shell - interactive shell inside sandbox
+  - path: /home/${admin_username}/bin/agent-shell
+    owner: ${admin_username}:${admin_username}
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Launch an interactive shell inside the coding agent sandbox.
+      # Usage: agent-shell [project-dir]
+      set -e
+      PROJECT="$${1:-default}"
+      WORKSPACE="$HOME/projects/$PROJECT"
+      mkdir -p "$WORKSPACE"
+
+      exec docker run -it --rm \
+        -v "$WORKSPACE":/workspace \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        --security-opt no-new-privileges:true \
+        --cap-drop ALL \
+        --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+        --cap-add SETUID --cap-add SETGID \
+        --tmpfs /tmp:size=100M \
+        coding-agent-sandbox \
+        /bin/bash
+
+  # Helper: run-opencode - run OpenCode inside sandbox
+  - path: /home/${admin_username}/bin/run-opencode
+    owner: ${admin_username}:${admin_username}
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Run OpenCode inside a Docker sandbox.
+      # Usage: run-opencode <project-dir> <prompt>
+      set -e
+      PROJECT="$${1:?Usage: run-opencode <project-dir> <prompt>}"
+      shift
+      PROMPT="$*"
+      WORKSPACE="$HOME/projects/$PROJECT"
+      mkdir -p "$WORKSPACE"
+
+      exec docker run -i --rm \
+        -v "$WORKSPACE":/workspace \
+        --security-opt no-new-privileges:true \
+        --cap-drop ALL \
+        --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+        --cap-add SETUID --cap-add SETGID \
+        --tmpfs /tmp:size=100M \
+        coding-agent-sandbox \
+        opencode run "$PROMPT"
+
+  # Helper: run-pi - run Pi Coding Agent inside sandbox
+  - path: /home/${admin_username}/bin/run-pi
+    owner: ${admin_username}:${admin_username}
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Run Pi Coding Agent inside a Docker sandbox.
+      # Usage: run-pi <project-dir> <prompt>
+      set -e
+      PROJECT="$${1:?Usage: run-pi <project-dir> <prompt>}"
+      shift
+      PROMPT="$*"
+      WORKSPACE="$HOME/projects/$PROJECT"
+      mkdir -p "$WORKSPACE"
+
+      exec docker run -i --rm \
+        -v "$WORKSPACE":/workspace \
+        --security-opt no-new-privileges:true \
+        --cap-drop ALL \
+        --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+        --cap-add SETUID --cap-add SETGID \
+        --tmpfs /tmp:size=100M \
+        coding-agent-sandbox \
+        pi "$PROMPT"
+
+  # Systemd: build sandbox image on boot
+  - path: /etc/systemd/system/agent-sandbox-build.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Build coding agent Docker sandbox image
+      After=docker.service
+      Requires=docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStartPre=/usr/bin/docker pull ubuntu:22.04
+      ExecStart=/usr/bin/docker build -t coding-agent-sandbox /home/${admin_username}/docker/
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # Hermes config with Docker terminal backend
+  - path: /home/${admin_username}/.hermes/config.yaml
+    owner: ${admin_username}:${admin_username}
+    permissions: "0644"
+    content: |
+      model:
+        default: anthropic/claude-sonnet-4
+        provider: openrouter
+      agent:
+        max_turns: 90
+      terminal:
+        backend: docker
+        docker:
+          image: coding-agent-sandbox
+          workdir: /workspace
+          security_opt:
+            - "no-new-privileges:true"
+          cap_drop:
+            - ALL
+          cap_add:
+            - "CHOWN"
+            - "DAC_OVERRIDE"
+            - "FOWNER"
+            - "SETUID"
+            - "SETGID"
+      delegation:
+        model: anthropic/claude-sonnet-4
+        max_iterations: 50
+
+  # Project level AGENTS.md for agent guidance
+  - path: /etc/skel/AGENTS.md
+    permissions: "0644"
+    content: |
+      # Coding Agent Project Context
+      This project is managed by OpenCode, Pi, or Hermes coding agents.
+      Agents run in Docker sandboxes for container-level isolation.
+
+# ---------------------------------------------------------------------------
+# Commands to run at boot
+# ---------------------------------------------------------------------------
+runcmd:
+  # ---- Security: firewall ----
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw --force enable
+
+  # ---- Security: SSH hardening ----
+  - sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+  - systemctl restart ssh
+
+  # ---- Add agent user to docker group ----
+  - usermod -aG docker ${admin_username}
+
+  # ---- Install Node.js LTS via n ----
+  - npm install -g n && n lts
+  - hash -r
+
+  # ---- Install OpenCode CLI ----
+  - npm install -g opencode-ai@latest
+
+  # ---- Install Pi Coding Agent ----
+  - npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+  # ---- Install Hermes Agent ----
+  - curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+  - hermes tools enable web terminal file delegation 2>/dev/null || true
+
+  # ---- Set up Docker data disk (if provisioned) ----
+  - |
+    if [ -e /dev/sdc ] && [ ! -e /dev/sdc1 ]; then
+      parted /dev/sdc mklabel gpt
+      parted /dev/sdc mkpart primary ext4 0% 100%
+      mkfs.ext4 /dev/sdc1
+      mkdir -p /var/lib/docker-extra
+      mount /dev/sdc1 /var/lib/docker-extra
+      echo '/dev/sdc1 /var/lib/docker-extra ext4 defaults 0 2' >> /etc/fstab
+      systemctl stop docker
+      rsync -a /var/lib/docker/ /var/lib/docker-extra/
+      rm -rf /var/lib/docker
+      mkdir -p /var/lib/docker
+      mount --bind /var/lib/docker-extra /var/lib/docker
+      systemctl start docker
+    fi
+
+  # ---- Enable Docker on boot ----
+  - systemctl enable docker
+
+  # ---- Build coding agent sandbox Docker image ----
+  - docker pull ubuntu:22.04
+  - docker build -t coding-agent-sandbox /home/${admin_username}/docker/
+  - systemctl enable agent-sandbox-build.service
+
+  # ---- Create projects directory ----
+  - mkdir -p /home/${admin_username}/projects
+  - chown -R ${admin_username}:${admin_username} /home/${admin_username}/projects
+
+  # ---- Set PATH for the agent user ----
+  - echo 'export PATH="$HOME/bin:$PATH"' >> /home/${admin_username}/.bashrc
+  - echo 'export EDITOR=vim' >> /home/${admin_username}/.bashrc
+
+  # ---- Copy AGENTS.md ----
+  - cp /etc/skel/AGENTS.md /home/${admin_username}/AGENTS.md
+  - chown ${admin_username}:${admin_username} /home/${admin_username}/AGENTS.md
+
+  # ---- Register completion marker ----
+  - echo "CLOUD_INIT_COMPLETE" >> /var/log/cloud-init-output.log
+
+final_message: "Coding Agent VM provisioning complete. Installed: Docker, OpenCode, Pi, Hermes Agent"
