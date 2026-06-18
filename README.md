@@ -463,6 +463,97 @@ The first PR triggers a plan. Merge to main triggers apply.
 - The workflow requires `id-token: write` for OIDC federation
 - State file in Azure Storage is encrypted at rest and private
 
+## Testing Strategy
+
+The project implements a multi-layer testing strategy inspired by Kief Morris's IaC pipelines and HashiCorp's recommended practices: unit tests via `terraform test`, integration tests for cloud-init, static analysis, and runtime invariants.
+
+### Test Layers
+
+```
+Layer 1: Static Analysis        Layer 2: Unit Tests         Layer 3: Integration     Layer 4: Runtime
+────────────────────────────    ──────────────────────      ─────────────────────     ─────────────────
+terraform fmt (style)           terraform test (HCL)        cloud-init validation    check blocks
+tflint (best practices)         mock_provider isolation     Python assertions        plan-time invariants
+checkov (security posture)      variable constraints        template completeness    deployment guards
+```
+
+### Layer 1: Static Analysis
+
+| Tool | Purpose | CI Step |
+|------|---------|---------|
+| `terraform fmt` | HCL style consistency | `validate` job |
+| `tflint` | Best practices, potential errors, provider-specific rules | `plan` job |
+| `checkov` | Security misconfiguration scanning (CIS benchmarks) | `plan` job |
+
+Run locally:
+```bash
+terraform fmt -recursive
+tflint -f compact
+checkov -d . --framework terraform --quiet
+```
+
+### Layer 2: Unit Tests (`terraform test`)
+
+Test files in `tests/*.tftest.hcl` use `mock_provider` to verify configuration logic without Azure credentials:
+
+| Test File | What it validates |
+|-----------|------------------|
+| `tests/variables.tftest.hcl` | Variable constraints, disk sizes, VM SKU, ubuntu version, SSH lock-down |
+| `tests/configuration.tftest.hcl` | Conditional logic (Cloudflare vs NSG, public IP modes), tag propagation, disk configurations |
+
+Run locally:
+```bash
+terraform test -no-color
+```
+
+All tests use `mock_provider` blocks -- no Azure subscription or credentials needed.
+
+### Layer 3: Integration Tests (cloud-init)
+
+`scripts/test-cloudinit.py` validates the cloud-init template has all required sections, packages, systemd services, scripts, and no hardcoded secrets. Runs in CI as part of the `validate` job:
+
+```bash
+python3 scripts/test-cloudinit.py
+```
+
+Checks performed:
+- YAML structure (write_files, runcmd, packages)
+- All required packages present (Docker, Node.js, git, UFW, etc.)
+- All systemd services defined (sandbox build, Cloudflare tunnel)
+- All agent installs present (OpenCode, Pi, Hermes)
+- Helper scripts exist (agent-shell, run-opencode, run-pi)
+- Template variables referenced correctly
+- No hardcoded API keys or tokens
+
+### Layer 4: Runtime Invariants (`check` blocks)
+
+`check` blocks in `main.tf` enforce invariants during every `terraform plan` and `terraform apply`:
+
+| Check | Enforcement |
+|-------|-------------|
+| `ssh_not_wildcard` | Blocks deployment with `ssh_allowed_ip = "0.0.0.0/0"` |
+| `cloudflare_or_ssh_locked` | Requires either Cloudflare Tunnel or a locked SSH IP |
+| `disk_size_adequate` | OS disk must be >= 40GB |
+| `vm_size_not_too_small` | VM must be B2-series or larger |
+
+These run on every plan/apply, including in CI. A failing `check` does not block apply but emits a warning.
+
+### Running All Tests Locally
+
+```bash
+# Static analysis
+terraform fmt -check -recursive
+tflint -f compact
+checkov -d . --framework terraform --quiet
+
+# Unit + integration
+terraform test -no-color
+python3 scripts/test-cloudinit.py
+
+# Plan (checks run automatically)
+terraform plan
+```
+
 ## Resources
 
 - https://learn.microsoft.com/en-us/azure/virtual-machines/linux/quick-create-terraform

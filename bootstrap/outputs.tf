@@ -12,7 +12,7 @@ output "container_name" {
 
 output "backend_config" {
   description = "Paste this block into the main project's terraform block to enable remote state"
-  value = <<-EOT
+  value       = <<-EOT
     backend "azurerm" {
       resource_group_name  = "${azurerm_resource_group.state.name}"
       storage_account_name = "${azurerm_storage_account.state.name}"
@@ -24,7 +24,7 @@ output "backend_config" {
 
 output "bootstrap_command" {
   description = "How to bootstrap the state backend"
-  value = <<-EOT
+  value       = <<-EOT
     cd bootstrap
     terraform init
     terraform apply -auto-approve

@@ -158,10 +158,10 @@ data "local_file" "ssh_public_key" {
 # ---------------------------------------------------------------------------
 locals {
   cloud_init_rendered = templatefile("${path.module}/cloud-init.yaml", {
-    admin_username            = var.admin_username
-    docker_disk_device        = var.docker_disk_size_gb > 0 ? "/dev/sdc" : ""
-    docker_disk_size_gb       = var.docker_disk_size_gb
-    cloudflare_tunnel_token   = var.cloudflare_tunnel_token
+    admin_username          = var.admin_username
+    docker_disk_device      = var.docker_disk_size_gb > 0 ? "/dev/sdc" : ""
+    docker_disk_size_gb     = var.docker_disk_size_gb
+    cloudflare_tunnel_token = var.cloudflare_tunnel_token
   })
 }
 
@@ -242,4 +242,36 @@ resource "azurerm_log_analytics_workspace" "main" {
   sku                 = "PerGB2018"
   retention_in_days   = 30
   tags                = var.tags
+}
+
+# ---------------------------------------------------------------------------
+# Validation checks (run during plan and apply)
+# ---------------------------------------------------------------------------
+
+check "ssh_not_wildcard" {
+  assert {
+    condition     = var.ssh_allowed_ip != "0.0.0.0/0"
+    error_message = "CRITICAL: ssh_allowed_ip is set to 0.0.0.0/0 (world-open). Lock it to your VPN egress IP."
+  }
+}
+
+check "cloudflare_or_ssh_locked" {
+  assert {
+    condition     = var.cloudflare_tunnel_token != "" || var.ssh_allowed_ip != "0.0.0.0/0"
+    error_message = "Either configure Cloudflare Tunnel (zero inbound ports) or lock ssh_allowed_ip to a specific IP range."
+  }
+}
+
+check "disk_size_adequate" {
+  assert {
+    condition     = var.disk_size_gb >= 40
+    error_message = "OS disk should be at least 40GB. Docker images + monorepos need space."
+  }
+}
+
+check "vm_size_not_too_small" {
+  assert {
+    condition     = can(regex("Standard_B[2-9]|Standard_D|Standard_E", var.vm_size))
+    error_message = "VM size ${var.vm_size} may be too small. B2s (2 vCPU, 4GB) is the minimum recommended."
+  }
 }

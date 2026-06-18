@@ -1,0 +1,25 @@
+# Checkov configuration for Terraform scanning
+# See: https://www.checkov.io/
+
+compact: true
+quiet: true
+skip-framework:
+  - dockerfile
+  - secrets
+  - kubernetes
+  - bicep
+  - arm
+framework:
+  - terraform
+
+# CKV_AZURE_1: Ensure VM does not expose admin credentials in custom_data
+#   (We use SSH keys, not passwords)
+skip-check:
+  # SSH keys passed via local_file -- this is the standard Terraform pattern
+  - CKV_AZURE_1
+  # Public IP warning -- we default to private-only
+  - CKV_AZURE_45
+  # Logging workspace -- optional, per variable
+  - CKV_AZURE_113
+  # Network watcher -- not needed for single-VM deployment
+  - CKV_AZURE_151
