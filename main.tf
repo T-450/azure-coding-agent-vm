@@ -14,6 +14,17 @@ terraform {
       version = "~> 2.0"
     }
   }
+
+  # Remote state backend (Azure Storage).
+  # Bootstrap first with bootstrap/ directory, then uncomment and run:
+  #   terraform init -reconfigure -migrate-state
+  #
+  # backend "azurerm" {
+  #   resource_group_name  = "rg-terraform-state"
+  #   storage_account_name = "tfstate<random>"
+  #   container_name       = "tfstate"
+  #   key                  = "coding-agent-vm.tfstate"
+  # }
 }
 
 provider "azurerm" {

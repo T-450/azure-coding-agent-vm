@@ -325,10 +325,143 @@ See [variables.tf](variables.tf) for all options. Key ones:
 |----------|---------|-------------|
 | `location` | `eastus` | Azure region |
 | `vm_size` | `Standard_B2ms` | VM SKU |
-| `create_public_ip` | `true` | Set `false` for VPN-only access |
+| `create_public_ip` | `false` | Set `true` for public IP access (not recommended behind VPN) |
 | `ssh_allowed_ip` | `0.0.0.0/0` | Lock to your VPN egress IP |
 | `disk_size_gb` | `64` | OS disk size |
 | `docker_disk_size_gb` | `32` | Extra disk for Docker data |
+| `cloudflare_tunnel_token` | `""` | Cloudflare tunnel token (zero inbound ports) |
+
+## CI/CD Pipeline
+
+This project uses GitHub Actions to manage the infrastructure as code, following the pipeline pattern described by Kief Morris: plan changes on PR, apply on merge to main.
+
+### Pipeline Flow
+
+```
+Pull Request               Merge to main
+     │                          │
+     ▼                          ▼
+┌──────────────┐          ┌──────────────┐
+│ Validate     │          │ Apply        │
+│  • fmt check │          │  • init      │
+│  • init      │          │  • apply     │
+│  • validate  │          │  • summary   │
+│  • plan ─────┼──comment────▶ PR        │
+│  • cloud-init│          └──────────────┘
+└──────────────┘                 │
+     │                          ▼
+  ┌────┐                  ┌──────────┐
+  │ PR │◀── review plan──▶│ Merge    │
+  └────┘                  └──────────┘
+```
+
+### Setup
+
+#### 1. Bootstrap the Remote State Backend
+
+Run this once to create an Azure Storage Account for Terraform state:
+
+```bash
+cd bootstrap
+terraform init
+terraform apply -auto-approve
+# Copy the backend config output, then paste it into main.tf
+cd ..
+terraform init -reconfigure -migrate-state
+```
+
+This creates:
+- Resource group `rg-terraform-state`
+- Storage account with a random suffix (e.g., `tfstate_a1b2c3`)
+- Blob container `tfstate`
+- State key `coding-agent-vm.tfstate`
+
+#### 2. Set GitHub Actions Secrets
+
+Go to your repo → Settings → Secrets and variables → Actions → Add the following repository secrets:
+
+| Secret | Description |
+|--------|-------------|
+| `AZURE_CLIENT_ID` | Azure Service Principal App ID for OIDC auth |
+| `AZURE_TENANT_ID` | Azure Tenant ID |
+| `AZURE_SUBSCRIPTION_ID` | Azure Subscription ID |
+| `AZURE_CLIENT_SECRET` | Service Principal client secret (if not using OIDC) |
+| `TF_VAR_CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare tunnel token (sensitive) |
+| `TF_VAR_SSH_ALLOWED_IP` | Your VPN egress IP |
+| `SSH_PUBLIC_KEY` | Public key content for VM admin user |
+| `SSH_PRIVATE_KEY` | Corresponding private key (for pipeline apply) |
+
+#### 3. Configure Azure Authentication
+
+The workflow supports two auth methods:
+
+**Option A: OpenID Connect (recommended)**
+
+Create an Azure Service Principal with Federated Credentials for GitHub:
+
+```bash
+az ad sp create-for-rbac --name "github-actions-${REPO_NAME}" \
+  --role Contributor \
+  --scopes /subscriptions/${SUBSCRIPTION_ID}
+
+# Create federated credential for the repo
+az ad app federated-credential create \
+  --id <app-id> \
+  --parameters '{
+    "name": "terraform-plan",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:T-450/azure-coding-agent-vm:pull_request",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+
+az ad app federated-credential create \
+  --id <app-id> \
+  --parameters '{
+    "name": "terraform-apply",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:T-450/azure-coding-agent-vm:ref:refs/heads/main",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+```
+
+Set `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` as GitHub secrets.
+
+**Option B: Client Secret**
+
+```bash
+az ad sp create-for-rbac --name "github-actions-${REPO_NAME}" \
+  --role Contributor \
+  --scopes /subscriptions/${SUBSCRIPTION_ID} \
+  --sdk-auth
+
+# Copy the JSON output and store it as AZURE_CREDENTIALS secret
+```
+
+#### 4. Commit and Push
+
+```bash
+git add -A
+git commit -m "Add CI/CD pipeline"
+git push
+```
+
+The first PR triggers a plan. Merge to main triggers apply.
+
+### Workflow Jobs
+
+| Job | Trigger | Steps |
+|-----|---------|-------|
+| `validate` | Any PR/push with .tf changes | fmt, init, validate, cloud-init check |
+| `plan` | PR only (after validate) | init, plan, post comment to PR |
+| `apply` | Push to main (after validate) | init, apply, post summary |
+
+### Security
+
+- Plans run with a throwaway SSH key (no access to the real VM)
+- Apply uses the real SSH key from GitHub Secrets
+- Cloudflare tunnel token and other sensitive vars are `TF_VAR_` env vars from secrets
+- The workflow requires `id-token: write` for OIDC federation
+- State file in Azure Storage is encrypted at rest and private
 
 ## Resources
 
