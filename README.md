@@ -1,29 +1,30 @@
 # Azure Coding Agent VM -- Terraform
 
-Provisions an Azure Linux VM (Standard_B2ms) pre-configured with Docker sandboxes, OpenCode, Pi Coding Agent, and Hermes Agent. Accessible through corporate VPN + VS Code Remote SSH.
+Provisions an Azure Linux VM (Standard_B2ms) pre-configured with Docker sandboxes, OpenCode, Pi Coding Agent, GitHub Copilot CLI, and Hermes Agent. Accessible through corporate VPN + VS Code Remote SSH.
 
 ## Architecture
 
 ```
   Your Machine                Azure
-  ┌──────────┐    VPN     ┌──────────────────────┐
-  │ VS Code  │─── SSH ───▶│  vm-coding-agent      │
-  │ Remote   │            │  (B2ms, 8GB RAM)      │
-  │ SSH      │            │  Ubuntu 22.04 LTS     │
-  └──────────┘            │                      │
-                          │  ┌────────────────┐  │
-                          │  │ Docker Sandbox  │  │
-                          │  │  coding-agent   │──▶ Anthropic / OpenAI / OpenRouter API
-                          │  │  (isolated)     │  │
-                          │  │  OpenCode       │  │
-                          │  │  Pi Agent       │  │
-                          │  └────────────────┘  │
-                          │                      │
-                          │  ┌────────────────┐  │
-                          │  │ Hermes Agent    │  │──▶ Provider of your choice
-                          │  │ (Docker backend)│  │
-                          │  └────────────────┘  │
-                          └──────────────────────┘
+    ┌──────────┐    VPN     ┌──────────────────────┐
+    │ VS Code  │─── SSH ───▶│  vm-coding-agent      │
+    │ Remote   │            │  (B2ms, 8GB RAM)      │
+    │ SSH      │            │  Ubuntu 22.04 LTS     │
+    └──────────┘            │                      │
+                            │  ┌────────────────┐  │
+                            │  │ Docker Sandbox  │  │
+                            │  │  coding-agent   │──▶ Anthropic / OpenAI / OpenRouter API
+                            │  │  (isolated)     │  │
+                            │  │  OpenCode       │  │
+                            │  │  Pi Agent       │  │
+                            │  │  Copilot CLI    │  │
+                            │  └────────────────┘  │
+                            │                      │
+                            │  ┌────────────────┐  │
+                            │  │ Hermes Agent    │  │──▶ Provider of your choice
+                            │  │ (Docker backend)│  │
+                            │  └────────────────┘  │
+                            └──────────────────────┘
 ```
 
 ## What gets installed
@@ -33,6 +34,7 @@ Provisions an Azure Linux VM (Standard_B2ms) pre-configured with Docker sandboxe
 | **Docker** | apt (docker.io) | Sandboxed agent execution |
 | **OpenCode** | `npm i -g opencode-ai` | Open-source coding agent CLI |
 | **Pi Coding Agent** | `npm i -g @earendil-works/pi-coding-agent` | Minimal coding agent harness |
+| **GitHub Copilot CLI** | `gh extension install github/gh-copilot` | AI pair programmer in terminal |
 | **Hermes Agent** | Official install.sh | Multi-platform AI agent framework |
 | **code-server** | code-server.dev | VS Code in browser (optional) |
 | **tmux** | apt | Persistent terminal sessions |
@@ -264,6 +266,11 @@ echo 'export OPENAI_API_KEY="sk-..."' >> ~/.bashrc
 echo 'export OPENROUTER_API_KEY="sk-or-..."' >> ~/.bashrc
 source ~/.bashrc
 
+# GitHub Copilot -- authenticate with GitHub PAT (classic token with read:org + read:user scopes)
+# or use OAuth device flow:
+gh auth login --hostname github.com
+# Then: gh copilot suggest "..." / gh copilot explain "..."
+
 # Hermes config
 hermes config set model.default anthropic/claude-sonnet-4
 hermes config set model.provider openrouter
@@ -284,6 +291,10 @@ The coding agents run inside isolated Docker containers, not directly on the hos
 
 # Run Pi inside sandbox
 ~/bin/run-pi my-project "Add unit tests for the API"
+
+# Run GitHub Copilot CLI inside sandbox (needs gh auth login first)
+~/bin/run-copilot my-project suggest "Explain this Terraform module"
+~/bin/run-copilot my-project explain "docker run"
 
 # Hermes uses Docker backend natively (configured in ~/.hermes/config.yaml)
 hermes chat -q "Fix the CI pipeline"

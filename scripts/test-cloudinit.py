@@ -40,11 +40,13 @@ check("cloudflare-tunnel.service" in raw, "Missing cloudflare tunnel service")
 check("opencode-ai" in raw, "Missing OpenCode install")
 check("earendil-works/pi-coding-agent" in raw, "Missing Pi Coding Agent install")
 check("hermes-agent.nousresearch.com/install.sh" in raw, "Missing Hermes Agent install")
+check("gh extension install github/gh-copilot" in raw, "Missing GitHub Copilot CLI install")
 
 # 6. Required scripts
 check("# Usage: agent-shell" in raw, "Missing agent-shell script")
 check("# Usage: run-opencode" in raw, "Missing run-opencode script")
 check("# Usage: run-pi" in raw, "Missing run-pi script")
+check("# Usage: run-copilot" in raw, "Missing run-copilot script")
 
 # 7. Terraform template variables are referenced
 check("${admin_username}" in raw, "Missing admin_username template variable")

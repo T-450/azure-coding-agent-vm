@@ -25,6 +25,7 @@ packages:
   - python3-pip
   - python3-venv
   - git
+  - gh
   - curl
   - tmux
   - htop
@@ -52,12 +53,19 @@ write_files:
 
       RUN apt-get update && apt-get install -y --no-install-recommends \
           git curl wget jq ca-certificates openssh-client \
-          build-essential python3 python3-pip nodejs npm ripgrep tmux \
+          build-essential python3 python3-pip nodejs npm ripgrep tmux gh \
           && rm -rf /var/lib/apt/lists/*
 
-      RUN useradd -m -s /bin/bash agent
+      RUN useradd -m -s /bin/bash agent && \
+          mkdir -p /home/agent/.config/gh && \
+          chown -R agent:agent /home/agent
       USER agent
       WORKDIR /workspace
+
+      # Pre-install Copilot CLI extension (avoids network on each run)
+      RUN gh extension install github/gh-copilot 2>/dev/null || true
+
+      # Auth token goes in /home/agent/.config/gh/hosts.yml (mounted from host)
 
   # Helpers: agent-shell - interactive shell inside sandbox
   - path: /home/${admin_username}/bin/agent-shell
@@ -117,7 +125,7 @@ write_files:
       PROJECT="$${1:?Usage: run-pi <project-dir> <prompt>}"
       shift
       PROMPT="$$*"
-      WORKSPACE="$HOME/projects/$$PROJECT"
+      WORKSPACE="$$HOME/projects/$$PROJECT"
       mkdir -p "$$WORKSPACE"
 
       exec docker run -i --rm \
@@ -129,6 +137,33 @@ write_files:
         --tmpfs /tmp:size=100M \
         coding-agent-sandbox \
         pi "$$PROMPT"
+
+  # Helper: run-copilot - run GitHub Copilot CLI inside sandbox
+  - path: /home/${admin_username}/bin/run-copilot
+    owner: ${admin_username}:${admin_username}
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Usage: run-copilot <project-dir> "suggest|explain" "<query>"
+      set -e
+      PROJECT="$${1:?Usage: run-copilot <project-dir> <command> <query>}"
+      shift
+      CMD="$${1:?Usage: run-copilot <project-dir> <command> <query>}"
+      shift
+      QUERY="$$*"
+      WORKSPACE="$$HOME/projects/$$PROJECT"
+      mkdir -p "$$WORKSPACE"
+
+      exec docker run -i --rm \
+        -v "$$WORKSPACE":/workspace \
+        -v "$$HOME/.config/gh":/home/agent/.config/gh:ro \
+        --security-opt no-new-privileges:true \
+        --cap-drop ALL \
+        --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+        --cap-add SETUID --cap-add SETGID \
+        --tmpfs /tmp:size=100M \
+        coding-agent-sandbox \
+        gh copilot "$$CMD" "$$QUERY"
 
   # Systemd: build sandbox image on boot
   - path: /etc/systemd/system/agent-sandbox-build.service
@@ -312,6 +347,12 @@ runcmd:
   # ---- Install Pi Coding Agent ----
   - npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
+  # ---- Install GitHub Copilot CLI extension ----
+  - gh extension install github/gh-copilot 2>/dev/null || true
+  # gh auth login is interactive -- user must run it manually:
+  #   gh auth login --hostname github.com
+  #   Then use: gh copilot suggest "..." / gh copilot explain "..."
+
   # ---- Install Hermes Agent ----
   - curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
   - hermes tools enable web terminal file delegation 2>/dev/null || true
@@ -359,4 +400,4 @@ runcmd:
   # ---- Register completion marker ----
   - echo "CLOUD_INIT_COMPLETE" >> /var/log/cloud-init-output.log
 
-final_message: "Coding Agent VM provisioning complete. Installed: Docker, OpenCode, Pi, Hermes Agent."
+final_message: "Coding Agent VM provisioning complete. Installed: Docker, OpenCode, Pi, Copilot CLI, Hermes Agent."
