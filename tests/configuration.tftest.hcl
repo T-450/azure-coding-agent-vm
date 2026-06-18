@@ -9,7 +9,7 @@ mock_provider "local" {
   override_data {
     target = data.local_file.ssh_public_key
     values = {
-      content  = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCentSyBaR7DLrfzPBamxCo1AYYZr/EoD6y9vnkVPdbNs5gx5JEKakh4ryApbdamCe5Lf1F0tuZDuxf/YxWFrHIA6uWgr/fMVQ+H2jiqT691K1HT15Y5dOLR59stBGs5PwoU9UDQ7TF1s/YLjNW1s8C/A3IidkA6j+3R3n+B50WI08pBvBCWgC4lnIiAGWwc24bjLSMk1DbOgLM5vmIRXK0kUgIYPjT17a1DesWe/kwdBTn1AQZIouvUIef7u5mrGyqh+mwzYEFpFCa2i7iTBdsQPnbvikplHS2QtmDa3I3xKKoEmZzgB9ollkXkkZugbBe4C+89lCymZMr8IEi5MOt test@mock"
+      content = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCentSyBaR7DLrfzPBamxCo1AYYZr/EoD6y9vnkVPdbNs5gx5JEKakh4ryApbdamCe5Lf1F0tuZDuxf/YxWFrHIA6uWgr/fMVQ+H2jiqT691K1HT15Y5dOLR59stBGs5PwoU9UDQ7TF1s/YLjNW1s8C/A3IidkA6j+3R3n+B50WI08pBvBCWgC4lnIiAGWwc24bjLSMk1DbOgLM5vmIRXK0kUgIYPjT17a1DesWe/kwdBTn1AQZIouvUIef7u5mrGyqh+mwzYEFpFCa2i7iTBdsQPnbvikplHS2QtmDa3I3xKKoEmZzgB9ollkXkkZugbBe4C+89lCymZMr8IEi5MOt test@mock"
     }
   }
 }

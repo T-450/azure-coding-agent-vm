@@ -65,7 +65,7 @@ write_files:
       # Pre-install Copilot CLI extension (avoids network on each run)
       RUN gh extension install github/gh-copilot 2>/dev/null || true
 
-      # Auth token goes in /home/agent/.config/gh/hosts.yml (mounted from host)
+      # BYOK: GITHUB_COPILOT_API_KEY env var passed from host at runtime (see run-copilot helper)
 
   # Helpers: agent-shell - interactive shell inside sandbox
   - path: /home/${admin_username}/bin/agent-shell
@@ -145,6 +145,7 @@ write_files:
     content: |
       #!/bin/bash
       # Usage: run-copilot <project-dir> "suggest|explain" "<query>"
+      # BYOK mode: set GITHUB_COPILOT_API_KEY in ~/.bashrc (no gh auth login needed)
       set -e
       PROJECT="$${1:?Usage: run-copilot <project-dir> <command> <query>}"
       shift
@@ -157,6 +158,7 @@ write_files:
       exec docker run -i --rm \
         -v "$$WORKSPACE":/workspace \
         -v "$$HOME/.config/gh":/home/agent/.config/gh:ro \
+        -e GITHUB_COPILOT_API_KEY \
         --security-opt no-new-privileges:true \
         --cap-drop ALL \
         --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
@@ -347,11 +349,12 @@ runcmd:
   # ---- Install Pi Coding Agent ----
   - npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
-  # ---- Install GitHub Copilot CLI extension ----
+  # ---- Install GitHub Copilot CLI extension (BYOK mode) ----
   - gh extension install github/gh-copilot 2>/dev/null || true
-  # gh auth login is interactive -- user must run it manually:
-  #   gh auth login --hostname github.com
-  #   Then use: gh copilot suggest "..." / gh copilot explain "..."
+  # BYOK mode: set GITHUB_COPILOT_API_KEY in ~/.bashrc (no gh auth login needed)
+  #   echo 'export GITHUB_COPILOT_API_KEY="gsk-..."' >> ~/.bashrc
+  #   source ~/.bashrc
+  #   gh copilot suggest "explain this code"
 
   # ---- Install Hermes Agent ----
   - curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash

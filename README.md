@@ -266,10 +266,12 @@ echo 'export OPENAI_API_KEY="sk-..."' >> ~/.bashrc
 echo 'export OPENROUTER_API_KEY="sk-or-..."' >> ~/.bashrc
 source ~/.bashrc
 
-# GitHub Copilot -- authenticate with GitHub PAT (classic token with read:org + read:user scopes)
-# or use OAuth device flow:
-gh auth login --hostname github.com
-# Then: gh copilot suggest "..." / gh copilot explain "..."
+# GitHub Copilot CLI -- BYOK mode (no GitHub subscription needed)
+# Get a key from https://github.com/settings/copilot or your BYOK provider
+echo 'export GITHUB_COPILOT_API_KEY="gsk-..."' >> ~/.bashrc
+source ~/.bashrc
+# Verify:
+#   gh copilot suggest "Write a Python function to sort a list"
 
 # Hermes config
 hermes config set model.default anthropic/claude-sonnet-4
