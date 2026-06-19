@@ -71,9 +71,27 @@ jobs:
         if: steps.fmt.outcome == 'failure'
         run: echo "terraform fmt found issues. Run 'terraform fmt -recursive' locally."
 
+  smoke:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.x
+
+      - name: Install Python deps
+        run: pip install pyyaml
+
+      - name: Run Smoke Tests
+        run: bash scripts/smoke-test.sh
+
   plan:
     name: Terraform Plan
-    needs: validate
+    needs: [validate, smoke]
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
 
@@ -150,7 +168,7 @@ jobs:
 
   apply:
     name: Terraform Apply
-    needs: validate
+    needs: [validate, smoke]
     runs-on: ubuntu-latest
     if: github.ref_name == 'main' && github.event_name == 'push'
 
